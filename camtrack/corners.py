@@ -14,6 +14,7 @@ import click
 import cv2
 import numpy as np
 import pims
+from tqdm import tqdm
 
 from _corners import FrameCorners, CornerStorage, StorageImpl
 from _corners import dump, load, draw, without_short_tracks, create_cli
@@ -48,7 +49,7 @@ def _build_impl(frame_sequence: pims.FramesSequence,
                      maxLevel=2,
                      criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 3, 0.001))
 
-    for frame, image_1 in enumerate(frame_sequence[1:], 1):
+    for frame, image_1 in tqdm(enumerate(frame_sequence[1:], 1)):
         image_1_gray = np.array(image_1 * 255, dtype=np.uint8)
 
 
