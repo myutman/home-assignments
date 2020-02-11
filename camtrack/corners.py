@@ -38,27 +38,36 @@ def _build_impl(frame_sequence: pims.FramesSequence,
                 builder: _CornerStorageBuilder) -> None:
     image_0 = frame_sequence[0]
     image_0_gray = np.array(image_0 * 255, dtype=np.uint8)
-    points = cv2.goodFeaturesToTrack(image_0_gray, maxCorners=100, qualityLevel=0.3, minDistance=7, blockSize=7)
-    corners = FrameCorners(np.array(list(range(len(points)))), points, 7 * np.ones(len(points)))
+    points = cv2.goodFeaturesToTrack(image_0_gray, maxCorners=400, qualityLevel=0.3, minDistance=7, blockSize=7)
+    ids = np.arange(len(points))
+    cur_id = len(points)
+    corners = FrameCorners(ids, points, 7 * np.ones(len(points)))
     builder.set_corners_at_frame(0, corners)
 
     lk_params = dict(winSize=(15, 15),
                      maxLevel=2,
                      criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 3, 0.001))
 
-    print(len(frame_sequence))
     for frame, image_1 in enumerate(frame_sequence[1:], 1):
         image_1_gray = np.array(image_1 * 255, dtype=np.uint8)
 
 
         # calculate optical flow
         points1, st, err = cv2.calcOpticalFlowPyrLK(prevImg=image_0_gray, nextImg=image_1_gray, prevPts=points, nextPts=None, **lk_params)
-        good_new = points1[st == 1]
+        st = st.reshape(-1)
+        good_points = points1[st == 1]
+        good_ids = ids[st == 1]
+
+        new_points = cv2.goodFeaturesToTrack(image_1_gray, maxCorners=400, qualityLevel=0.3, minDistance=7, blockSize=7)
+        new_points = np.array([point for point in new_points if np.linalg.norm(good_points - point, axis=-1).min() > 7], dtype=np.float32)
+        new_ids = np.arange(cur_id, cur_id + len(new_points))
+        cur_id += len(new_points)
 
         # Now update the previous frame and previous points
         image_0_gray = image_1_gray
-        points = good_new.reshape(-1, 1, 2)
-        corners = FrameCorners(np.array(list(range(len(points)))), points, 7 * np.ones(len(points)))
+        points = np.concatenate([good_points.reshape(-1, 1, 2), new_points.reshape(-1, 1, 2)])
+        ids = np.concatenate([good_ids, new_ids])
+        corners = FrameCorners(ids, points, 7 * np.ones(len(points)))
         builder.set_corners_at_frame(frame, corners)
 
 
