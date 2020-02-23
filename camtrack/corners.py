@@ -39,7 +39,9 @@ def _build_impl(frame_sequence: pims.FramesSequence,
                 builder: _CornerStorageBuilder) -> None:
     image_0 = frame_sequence[0]
     image_0_gray = np.array(image_0 * 255, dtype=np.uint8)
-    points = cv2.goodFeaturesToTrack(image_0_gray, maxCorners=400, qualityLevel=0.3, minDistance=7, blockSize=7)
+    h, w = image_0_gray.shape
+    print(h, w)
+    points = cv2.goodFeaturesToTrack(image_0_gray, maxCorners=400, qualityLevel=0.001, minDistance=7, blockSize=7)
     ids = np.arange(len(points))
     cur_id = len(points)
     corners = FrameCorners(ids, points, 7 * np.ones(len(points)))
@@ -47,7 +49,7 @@ def _build_impl(frame_sequence: pims.FramesSequence,
 
     lk_params = dict(winSize=(15, 15),
                      maxLevel=2,
-                     criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 3, 0.001))
+                     criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 3, 0.1))
 
     for frame, image_1 in tqdm(enumerate(frame_sequence[1:], 1)):
         image_1_gray = np.array(image_1 * 255, dtype=np.uint8)
@@ -59,7 +61,7 @@ def _build_impl(frame_sequence: pims.FramesSequence,
         good_points = points1[st == 1]
         good_ids = ids[st == 1]
 
-        new_points = cv2.goodFeaturesToTrack(image_1_gray, maxCorners=400, qualityLevel=0.3, minDistance=7, blockSize=7)
+        new_points = cv2.goodFeaturesToTrack(image_1_gray, maxCorners=400, qualityLevel=0.001, minDistance=7, blockSize=7)
         new_points = np.array([point for point in new_points if np.linalg.norm(good_points - point, axis=-1).min() > 7], dtype=np.float32)
         new_ids = np.arange(cur_id, cur_id + len(new_points))
         cur_id += len(new_points)
@@ -89,9 +91,7 @@ def build(frame_sequence: pims.FramesSequence,
     else:
         builder = _CornerStorageBuilder()
         _build_impl(frame_sequence, builder)
-    kek = builder.build_corner_storage()
-    print(kek.__getitem__(0).points)
-    return kek
+    return builder.build_corner_storage()
 
 
 if __name__ == '__main__':
