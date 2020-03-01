@@ -52,8 +52,8 @@ def _build_impl(frame_sequence: pims.FramesSequence,
     builder.set_corners_at_frame(0, corners)
 
     lk_params = dict(winSize=(15, 15),
-                     maxLevel=2,
-                     criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 3, 0.1))
+                     maxLevel=4,
+                     criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 3, 0.3))
 
     for frame, image_1 in tqdm(enumerate(frame_sequence[1:], 1)):
         image_1_gray = np.array(image_1 * 255, dtype=np.uint8)
