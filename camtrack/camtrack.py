@@ -219,7 +219,7 @@ def track_and_calc_colors(
         print(f"Processing frame #{n_frame}. Number of inliers: {0 if inliers is None else len(inliers)}. "
               f"Reprojection error: {reprojection_error}. Tracking points: {len(common_img)}")
 
-    """git
+    """
     points_3d, points_ids = initial_points_3d.copy(), initial_points_ids.copy()
 
     for n_frame, corners in enumerate(corner_storage[2:], 2):
@@ -245,6 +245,7 @@ def track_and_calc_colors(
         print(f"Processing frame #{n_frame}. Number of inliers: {0 if inliers is None else len(inliers)}. "
               f"Reprojection error: {reprojection_error}. Tracking points: {len(common_img)}")
     """
+
 
     res_points_ids = np.array([i for i, x in enumerate(res_points_3d) if x[0] is not None])
     res_points_3d = np.array(res_points_3d[res_points_ids], dtype=float)
