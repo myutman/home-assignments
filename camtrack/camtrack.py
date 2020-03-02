@@ -6,16 +6,12 @@ __all__ = [
 
 from typing import List, Optional, Tuple
 
-import numpy as np
 import cv2
+import numpy as np
 
-from _corners import FrameCorners
-from corners import CornerStorage
-from data3d import CameraParameters, PointCloud, Pose
 import frameseq
 from _camtrack import (
     PointCloudBuilder,
-    Correspondences,
     create_cli,
     calc_point_cloud_colors,
     to_opencv_camera_mat3x3,
@@ -24,7 +20,48 @@ from _camtrack import (
     rodrigues_and_translation_to_view_mat3x4,
     triangulate_correspondences,
     TriangulationParameters, build_correspondences)
+from _corners import FrameCorners
+from corners import CornerStorage
+from data3d import CameraParameters, PointCloud, Pose
 
+RANSAC_REPROJECTION_ERROR=1
+INITIAL_TRIANGULATION_PARAMETERS = TriangulationParameters(
+    max_reprojection_error=5,
+    min_triangulation_angle_deg=0.01,
+    min_depth=0
+)
+NEW_TRIANGULATION_PARAMETERS = {
+    1: TriangulationParameters(
+        max_reprojection_error=5,
+        min_triangulation_angle_deg=0.01,
+        min_depth=1
+    ),
+    2: TriangulationParameters(
+        max_reprojection_error=4,
+        min_triangulation_angle_deg=0.02,
+        min_depth=4
+    ),
+    4: TriangulationParameters(
+        max_reprojection_error=2,
+        min_triangulation_angle_deg=0.04,
+        min_depth=6
+    ),
+    8: TriangulationParameters(
+        max_reprojection_error=1,
+        min_triangulation_angle_deg=0.08,
+        min_depth=8
+    ),
+    16: TriangulationParameters(
+        max_reprojection_error=0.5,
+        min_triangulation_angle_deg=0.16,
+        min_depth=10
+    ),
+    32: TriangulationParameters(
+        max_reprojection_error=0.2,
+        min_triangulation_angle_deg=0.32,
+        min_depth=12
+    )
+}
 
 def calc_starting_points(
     intrinsic_mat: np.ndarray,
@@ -47,11 +84,7 @@ def calc_starting_points(
         mat1,
         mat2,
         intrinsic_mat,
-        TriangulationParameters(
-            max_reprojection_error=10,
-            min_triangulation_angle_deg=0.01,
-            min_depth=0
-        )
+        INITIAL_TRIANGULATION_PARAMETERS
     )
     return  points_3d, points_ids
 
@@ -92,7 +125,7 @@ def build_view_mat(
         intrinsic_mat,
         None,
         flags=cv2.SOLVEPNP_EPNP,
-        reprojectionError=10
+        reprojectionError=RANSAC_REPROJECTION_ERROR
     )
     mat = rodrigues_and_translation_to_view_mat3x4(rvec, tvec)
 
@@ -121,6 +154,10 @@ def merge_sets(points_3d, points_ids, new_points_3d, new_points_ids):
         res_points_ids.append(id)
         if j < len(points_ids) and points_ids[j] == id:
             j += 1
+    while j < len(points_ids):
+        res_points_3d.append(points_3d[j])
+        res_points_ids.append(points_ids[j])
+        j += 1
 
     return res_points_3d, res_points_ids
 
@@ -130,14 +167,11 @@ def calc_new_points(
     corner_storage: CornerStorage,
     view_mats: List[np.ndarray],
     points_3d: List[np.ndarray],
-    points_ids: List[int],
-    take_all: bool = False
+    points_ids: List[int]
 ) -> Tuple[List[np.ndarray], List[int]]:
-
-    n_frames = len(corner_storage) if take_all else cur_id
-
-    for i in range(n_frames):
-        if i == cur_id:
+    for d in [-32, -16, -8, -4, -2, -1, 1, 2, 4, 8, 16, 32]:
+        i = cur_id + d
+        if i < 0 or i >= len(corner_storage) or view_mats[i][0, 0] is None:
             continue
         mat1 = view_mats[i]
         mat2 = view_mats[cur_id]
@@ -151,11 +185,7 @@ def calc_new_points(
             mat1,
             mat2,
             intrinsic_mat,
-            TriangulationParameters(
-                max_reprojection_error=10,
-                min_triangulation_angle_deg=0.03,
-                min_depth=0
-            )
+            NEW_TRIANGULATION_PARAMETERS[abs(d)]
         )
 
         points_3d, points_ids = merge_sets(
@@ -187,25 +217,27 @@ def track_and_calc_colors(
 
     points_3d, points_ids = calc_starting_points(intrinsic_mat, corner_storage, known_view_1, known_view_2)
 
-    initial_points_3d, initial_points_ids = points_3d.copy(), points_ids.copy()
+    #initial_points_3d, initial_points_ids = points_3d.copy(), points_ids.copy()
 
     n_points = corner_storage.max_corner_id() + 1
     res_points_3d = np.full((n_points, 3), None)
-    res_points_3d[points_ids] = points_3d
+    #res_points_3d[points_ids] = points_3d
 
-    view_mats = [pose_to_view_mat3x4(known_view_1[1]), pose_to_view_mat3x4(known_view_2[1])]
+    view_mats = [np.full((3, 4), None) for _ in range(len(corner_storage))]
+    view_mats[known_view_1[0]], view_mats[known_view_2[0]] = pose_to_view_mat3x4(known_view_1[1]), pose_to_view_mat3x4(known_view_2[1])
 
     points_3d, points_ids = list(points_3d), list(points_ids)
 
-    for n_frame, corners in enumerate(corner_storage[2:], 2):
+    id1 = known_view_1[0]
+    for n_frame, corners in enumerate(corner_storage[id1 + 1:], id1 + 1):
         common_obj, common_img = get_common_points(corners, points_ids, points_3d)
 
         mat, inliers, reprojection_error = build_view_mat(common_obj, common_img, intrinsic_mat)
-        view_mats.append(mat)
+        view_mats[n_frame] = mat
 
         points_3d = list(np.array(points_3d)[inliers])
         points_ids = list(np.array(points_ids)[inliers])
-        res_points_3d[points_ids] = points_3d
+        #res_points_3d[points_ids] = points_3d
 
         points_3d, points_ids = calc_new_points(
             n_frame,
@@ -219,18 +251,15 @@ def track_and_calc_colors(
         print(f"Processing frame #{n_frame}. Number of inliers: {0 if inliers is None else len(inliers)}. "
               f"Reprojection error: {reprojection_error}. Tracking points: {len(common_img)}")
 
-    """
-    points_3d, points_ids = initial_points_3d.copy(), initial_points_ids.copy()
-
-    for n_frame, corners in enumerate(corner_storage[2:], 2):
+    for n_frame, corners in list(enumerate(corner_storage))[::-1]:
         common_obj, common_img = get_common_points(corners, points_ids, points_3d)
 
         mat, inliers, reprojection_error = build_view_mat(common_obj, common_img, intrinsic_mat)
-        view_mats.append(mat)
+        view_mats[n_frame] = mat
 
         points_3d = list(np.array(points_3d)[inliers])
         points_ids = list(np.array(points_ids)[inliers])
-        res_points_3d[points_ids] = points_3d
+        #res_points_3d[points_ids] = points_3d
 
         points_3d, points_ids = calc_new_points(
             n_frame,
@@ -238,13 +267,58 @@ def track_and_calc_colors(
             corner_storage,
             view_mats,
             points_3d,
-            points_ids,
-            True
+            points_ids
         )
 
         print(f"Processing frame #{n_frame}. Number of inliers: {0 if inliers is None else len(inliers)}. "
               f"Reprojection error: {reprojection_error}. Tracking points: {len(common_img)}")
-    """
+
+    # Approximating
+    n_iter = 3
+    for _ in range(n_iter):
+        for n_frame, corners in enumerate(corner_storage):
+            common_obj, common_img = get_common_points(corners, points_ids, points_3d)
+
+            mat, inliers, reprojection_error = build_view_mat(common_obj, common_img, intrinsic_mat)
+            view_mats[n_frame] = mat
+
+            points_3d = list(np.array(points_3d)[inliers])
+            points_ids = list(np.array(points_ids)[inliers])
+            res_points_3d[points_ids] = points_3d
+
+            points_3d, points_ids = calc_new_points(
+                n_frame,
+                intrinsic_mat,
+                corner_storage,
+                view_mats,
+                points_3d,
+                points_ids
+            )
+
+            print(f"Processing frame #{n_frame}. Number of inliers: {0 if inliers is None else len(inliers)}. "
+                  f"Reprojection error: {reprojection_error}. Tracking points: {len(common_img)}")
+
+        for n_frame, corners in list(enumerate(corner_storage))[::-1]:
+            common_obj, common_img = get_common_points(corners, points_ids, points_3d)
+
+            mat, inliers, reprojection_error = build_view_mat(common_obj, common_img, intrinsic_mat)
+            view_mats[n_frame] = mat
+
+            points_3d = list(np.array(points_3d)[inliers])
+            points_ids = list(np.array(points_ids)[inliers])
+            res_points_3d[points_ids] = points_3d
+
+            points_3d, points_ids = calc_new_points(
+                n_frame,
+                intrinsic_mat,
+                corner_storage,
+                view_mats,
+                points_3d,
+                points_ids
+            )
+
+            print(f"Processing frame #{n_frame}. Number of inliers: {0 if inliers is None else len(inliers)}. "
+                  f"Reprojection error: {reprojection_error}. Tracking points: {len(common_img)}")
 
 
     res_points_ids = np.array([i for i, x in enumerate(res_points_3d) if x[0] is not None])
