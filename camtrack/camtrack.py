@@ -134,9 +134,9 @@ def calc_new_points(
     take_all: bool = False
 ) -> Tuple[List[np.ndarray], List[int]]:
 
-    n_points = corner_storage.max_corner_id() + 1 if take_all else cur_id
+    n_frames = len(corner_storage) if take_all else cur_id
 
-    for i in range(n_points):
+    for i in range(n_frames):
         if i == cur_id:
             continue
         mat1 = view_mats[i]
@@ -219,6 +219,7 @@ def track_and_calc_colors(
         print(f"Processing frame #{n_frame}. Number of inliers: {0 if inliers is None else len(inliers)}. "
               f"Reprojection error: {reprojection_error}. Tracking points: {len(common_img)}")
 
+    """git
     points_3d, points_ids = initial_points_3d.copy(), initial_points_ids.copy()
 
     for n_frame, corners in enumerate(corner_storage[2:], 2):
@@ -243,6 +244,7 @@ def track_and_calc_colors(
 
         print(f"Processing frame #{n_frame}. Number of inliers: {0 if inliers is None else len(inliers)}. "
               f"Reprojection error: {reprojection_error}. Tracking points: {len(common_img)}")
+    """
 
     res_points_ids = np.array([i for i, x in enumerate(res_points_3d) if x[0] is not None])
     res_points_3d = np.array(res_points_3d[res_points_ids], dtype=float)
