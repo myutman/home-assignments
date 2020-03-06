@@ -14,3 +14,4 @@ scipy
 sortednp
 transforms3d
 voluptuous
+pyquaternion

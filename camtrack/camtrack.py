@@ -24,42 +24,43 @@ from _corners import FrameCorners
 from corners import CornerStorage
 from data3d import CameraParameters, PointCloud, Pose
 
-RANSAC_REPROJECTION_ERROR=1
+RANSAC_REPROJECTION_ERROR=10
+MIN_TRISNGULATION_ANGLE=1.5
 INITIAL_TRIANGULATION_PARAMETERS = TriangulationParameters(
-    max_reprojection_error=5,
-    min_triangulation_angle_deg=0.01,
-    min_depth=0
+    max_reprojection_error=15,
+    min_triangulation_angle_deg=1,
+    min_depth=1e-5
 )
 NEW_TRIANGULATION_PARAMETERS = {
     1: TriangulationParameters(
         max_reprojection_error=5,
-        min_triangulation_angle_deg=0.01,
-        min_depth=1
+        min_triangulation_angle_deg=MIN_TRISNGULATION_ANGLE,
+        min_depth=1e-5
     ),
     2: TriangulationParameters(
-        max_reprojection_error=4,
-        min_triangulation_angle_deg=0.02,
-        min_depth=4
+        max_reprojection_error=5,
+        min_triangulation_angle_deg=MIN_TRISNGULATION_ANGLE,
+        min_depth=1e-5
     ),
     4: TriangulationParameters(
-        max_reprojection_error=2,
-        min_triangulation_angle_deg=0.04,
-        min_depth=6
+        max_reprojection_error=5,
+        min_triangulation_angle_deg=MIN_TRISNGULATION_ANGLE,
+        min_depth=1e-5
     ),
     8: TriangulationParameters(
-        max_reprojection_error=1,
-        min_triangulation_angle_deg=0.08,
-        min_depth=8
+        max_reprojection_error=5,
+        min_triangulation_angle_deg=MIN_TRISNGULATION_ANGLE,
+        min_depth=1e-5
     ),
     16: TriangulationParameters(
-        max_reprojection_error=0.5,
-        min_triangulation_angle_deg=0.16,
-        min_depth=10
+        max_reprojection_error=5,
+        min_triangulation_angle_deg=MIN_TRISNGULATION_ANGLE,
+        min_depth=1e-5
     ),
     32: TriangulationParameters(
-        max_reprojection_error=0.2,
-        min_triangulation_angle_deg=0.32,
-        min_depth=12
+        max_reprojection_error=5,
+        min_triangulation_angle_deg=MIN_TRISNGULATION_ANGLE,
+        min_depth=1e-5
     )
 }
 
@@ -125,7 +126,8 @@ def build_view_mat(
         intrinsic_mat,
         None,
         flags=cv2.SOLVEPNP_EPNP,
-        reprojectionError=RANSAC_REPROJECTION_ERROR
+        reprojectionError=RANSAC_REPROJECTION_ERROR,
+        iterationsCount=1000
     )
     mat = rodrigues_and_translation_to_view_mat3x4(rvec, tvec)
 
@@ -275,7 +277,7 @@ def track_and_calc_colors(
 
     # Approximating
     n_iter = 3
-    for _ in range(n_iter):
+    for iter in range(n_iter):
         for n_frame, corners in enumerate(corner_storage):
             common_obj, common_img = get_common_points(corners, points_ids, points_3d)
 
@@ -284,7 +286,9 @@ def track_and_calc_colors(
 
             points_3d = list(np.array(points_3d)[inliers])
             points_ids = list(np.array(points_ids)[inliers])
-            res_points_3d[points_ids] = points_3d
+
+            if iter == n_iter - 1:
+                res_points_3d[points_ids] = points_3d
 
             points_3d, points_ids = calc_new_points(
                 n_frame,
@@ -306,7 +310,8 @@ def track_and_calc_colors(
 
             points_3d = list(np.array(points_3d)[inliers])
             points_ids = list(np.array(points_ids)[inliers])
-            res_points_3d[points_ids] = points_3d
+            if iter == n_iter - 1:
+                res_points_3d[points_ids] = points_3d
 
             points_3d, points_ids = calc_new_points(
                 n_frame,
