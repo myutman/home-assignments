@@ -35,7 +35,7 @@ class _CornerStorageBuilder:
         return StorageImpl(item[1] for item in sorted(self._corners.items()))
 
 
-CORNER_QUALITY = 0.005
+CORNER_QUALITY = 0.0001
 
 kek = False
 
@@ -74,10 +74,10 @@ def _build_impl(frame_sequence: pims.FramesSequence,
     image_0_gray = np.array(image_0 * 255, dtype=np.uint8)
     h, w = image_0_gray.shape
     print(h, w)
-    blockSize = 15
-    n_covered = 70
-    maxCorners = int(20 * h * w / (np.pi * (blockSize / 2) ** 2))
-    minDistance = int(blockSize / (3 * n_covered / 100))
+    blockSize = 7
+    #maxCorners = int(20 * h * w / (np.pi * (blockSize / 2) ** 2))
+    maxCorners = 30000
+    minDistance = 7
     points = cv2.goodFeaturesToTrack(
         image_0,
         mask=None,
@@ -129,8 +129,8 @@ def _build_impl(frame_sequence: pims.FramesSequence,
         cur_id += len(new_points)
 
         # Now update the previous frame and previous points
-        points = np.concatenate([good_points.reshape(-1, 1, 2), new_points.reshape(-1, 1, 2)])
-        ids = np.concatenate([good_ids, new_ids])
+        points = np.concatenate([good_points.reshape(-1, 1, 2), new_points.reshape(-1, 1, 2)])[:maxCorners]
+        ids = np.concatenate([good_ids, new_ids])[:maxCorners]
         corners = FrameCorners(ids, points, 7 * np.ones(len(points)))
         builder.set_corners_at_frame(frame, corners)
 

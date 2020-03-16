@@ -9,6 +9,7 @@ from typing import List, Optional, Tuple
 import cv2
 import numpy as np
 import sortednp as snp
+from tqdm import tqdm
 
 import frameseq
 from _camtrack import (
@@ -22,8 +23,8 @@ from _camtrack import (
     triangulate_correspondences,
     TriangulationParameters,
     build_correspondences,
-    project_points,
-    compute_reprojection_errors)
+    _remove_correspondences_with_ids,
+    compute_reprojection_errors, eye3x4)
 from _corners import FrameCorners
 from corners import CornerStorage
 from data3d import CameraParameters, PointCloud, Pose
@@ -215,6 +216,73 @@ def calc_new_points(
     return points_3d, points_ids
 
 
+def pose_by_frames(
+    frame1: FrameCorners,
+    frame2: FrameCorners,
+    intrinsic_mat: np.ndarray
+) -> Tuple[Pose, int]:
+    correspondences = build_correspondences(frame1, frame2)
+    mat, mask = cv2.findEssentialMat(
+        correspondences.points_1,
+        correspondences.points_2,
+        intrinsic_mat,
+        cv2.RANSAC,
+        0.99,
+        1
+    )
+
+    if mat is None or mat.shape != (3, 3):
+        return None, 0
+
+    if mask is not None:
+        correspondences = _remove_correspondences_with_ids(correspondences, np.argwhere(mask.flatten() == 0))
+
+    R1, R2, t = cv2.decomposeEssentialMat(mat)
+    max_pose = None
+    max_npoints = 0
+    for mat in [R1.T, R2.T]:
+        for vec in [t, -t]:
+            pose = Pose(mat, mat @ vec)
+            points, _, _ = triangulate_correspondences(
+                correspondences,
+                eye3x4(),
+                pose_to_view_mat3x4(pose),
+                intrinsic_mat,
+                INITIAL_TRIANGULATION_PARAMETERS
+            )
+            if len(points) > max_npoints:
+                max_pose = pose
+                max_npoints = len(points)
+    return max_pose, max_npoints
+
+
+#--camera-poses ../../dataset/soda_free_motion/ground_truth.yml
+
+def initial_camera_views(
+    corner_storage: CornerStorage,
+    intrinsic_mat: np.ndarray
+) -> Tuple[Tuple[int, Pose], Tuple[int, Pose]]:
+    max_pose = None
+    max_npoints = 0
+    maxj = -1
+    maxi = -1
+
+    enum_corner_storage = list(enumerate(corner_storage))
+    for j, base_frame in tqdm(enum_corner_storage[::32]):
+        base_frame = corner_storage[0]
+        for i, frame in enum_corner_storage[j+1:j+32]:
+            pose, npoints = pose_by_frames(base_frame, frame, intrinsic_mat)
+            print(i, j, npoints)
+            if npoints > max_npoints:
+                max_npoints = npoints
+                maxi = i
+                maxj = j
+                max_pose = pose
+
+    print(max_npoints)
+    return (maxj, view_mat3x4_to_pose(eye3x4())), (maxi, max_pose)
+
+
 def track_and_calc_colors(
     camera_parameters: CameraParameters,
     corner_storage: CornerStorage,
@@ -222,14 +290,19 @@ def track_and_calc_colors(
     known_view_1: Optional[Tuple[int, Pose]] = None,
     known_view_2: Optional[Tuple[int, Pose]] = None
 ) -> Tuple[List[Pose], PointCloud]:
-    if known_view_1 is None or known_view_2 is None:
-        raise NotImplementedError()
-
     rgb_sequence = frameseq.read_rgb_f32(frame_sequence_path)
     intrinsic_mat = to_opencv_camera_mat3x3(
         camera_parameters,
         rgb_sequence[0].shape[0]
     )
+    if known_view_1 is None or known_view_2 is None:
+        known_view_1, known_view_2 = initial_camera_views(corner_storage, intrinsic_mat)
+    print(known_view_1[1])
+    print(known_view_2[1])
+
+    print(known_view_1[0], known_view_2[0])
+
+
     print(intrinsic_mat)
 
     points_3d, points_ids = calc_starting_points(intrinsic_mat, corner_storage, known_view_1, known_view_2)
@@ -296,7 +369,7 @@ def track_and_calc_colors(
 
     # Approximating
 
-    n_iter = 3
+    n_iter = 1
     for iter in range(n_iter):
         for n_frame, corners in enumerate(corner_storage):
             common_obj, common_img, common_ids = get_common_points(corners, points_ids, points_3d)
